@@ -1,0 +1,9 @@
+[Unit]
+Description=Set up required parameters for Kubernetes
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /usr/local/bin/onboot.sh
+
+[Install]
+WantedBy=multi-user.target
