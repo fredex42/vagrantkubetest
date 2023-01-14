@@ -59,6 +59,9 @@ Vagrant.configure("2") do |config|
       vb.memory = "2048"
       vb.cpus = 2
     end
+
+    cp.vm.synced_folder "./manifests", "/home/vagrant/manifests"
+    
     cp.vm.provision :shell, inline: <<-SHELL
     curl -L https://github.com/projectcalico/calico/releases/download/v3.24.5/calicoctl-linux-amd64 -o /tmp/calicoctl
     sudo mv /tmp/calicoctl /usr/local/bin
