@@ -19,20 +19,26 @@ We decided to build a "bare-metal" style cluster and use Vagrant/Virtualbox to m
 
 1. Virtualbox
 2. Vagrant
-3. Plenty of RAM and HDD (if everything maxes out, you'll need 18Gb RAM and over 60Gb storage)
+3. Plenty of RAM and HDD (if everything maxes out, you'll need 18Gb RAM and over 60Gb storage not to mention more than 8 cores)
 
 ### Step one - kickoff
 
 Clone out this repository and cd to it in a terminal window.  Then run:
 
 ```bash
+export VAGRANT_EXPERIMENTAL="disks"
 vagrant up
 ```
 
 This should create three VMs all based on Fedora 33 (this is the latest for which there is a prebuilt
 Vagrant box).  They should be called `control0`, `instance0` and `instance1`.
 
-They have hard-set IP addresses on a virtualbox "internal network" of `10.0.0.10`, `10.0.0.11` and `10.0.0.12`. If these clash
+It's very important to set `VAGRANT_EXPERIMENTAL="disks"` before running `vagrant up`. This allows Vagrant to
+provision extra storage on the two worker nodes - 30Gb each for a total of 60Gb cluster storage.  This is **not** 
+formatted or initialised in the vagrant provisioning, they are used by Ceph later in the setup process which
+formats them itself.
+
+The three VMs have hard-set IP addresses on a virtualbox "internal network" of `10.0.0.10`, `10.0.0.11` and `10.0.0.12`. If these clash
 with any other ranges that you use you should change the addresses in the Vagrantfile and update them in the commands listed
 here too.
 
@@ -249,7 +255,52 @@ the messages.
 
 If you use `https://10.0.0.11` instead of `https://10.0.0.12` you should see exactly the same result.
 
-### Step seven - prexit-local?
+### Step seven - storage
 
-Unfortunately, in order to make prexit-local work on this system you will need some kind of storage. We can't use the `hostpath` provisioner like minikube does
-because we have multiple worker nodes to worry about.  The plan is to use Ceph for this, and it will be the subject of an upcoming PR.....
+We are almost in a position where we can start deploying apps now.  However, we still need to have some kind of persistent storage available.
+
+Kubernetes have recently thinned down the offerings with the result that there really aren't many options for bare-metal.  Fortunately, the
+Ceph project gives us a fully supported and integrated storage solution.
+
+There are many differing installation instructions across the Web but the simplest is to use the Kubernetes Operator that the Ceph maintainers
+supply, which is called `rook`.  See https://rook.io/docs/rook/v1.10/Getting-Started/intro/ for more details.
+
+This provisions Ceph as an application _within_ the Kubernetes cluster itself and also registers it as a CSI plugin to provision storage.
+The following instructions are taken from https://rook.io/docs/rook/v1.10/Getting-Started/quickstart and https://rook.io/docs/rook/v1.10/Storage-Configuration/Block-Storage-RBD/block-storage/
+
+```bash
+git clone --single-branch --branch v1.10.9 https://github.com/rook/rook.git
+cd rook/deploy/examples
+kubectl create -f crds.yaml -f common.yaml -f operator.yaml
+kubectl create -f cluster.yaml
+watch -n 2 kubectl get pods -n rook-ceph
+```
+
+It will take some time for everything to come up.  This will provision the application itself, but it still needs configuring and associating
+with our cluster.  
+
+If you're concerned about whether it's working or not, follow the instructions at https://rook.io/docs/rook/v1.10/Troubleshooting/ceph-toolbox/ to
+access the Ceph toolbox and use the `ceph status` command in there to see what is going on.
+
+Now, we need to configure a storage pool on Ceph and associate it with a storage class:
+
+```bash
+kubectl apply -f /home/vagrant/manifests/ceph-storage-class.yaml
+kubectl get storageclass
+```
+
+You should see that the new storage class is now present.
+
+Finally, we need to mark this as the "default" storage class, so that the prexit-local components will use it without specific configuration
+
+```bash
+kubectl patch storageclass rook-ceph-block -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+```
+
+And that's it! When you bring up a StatefulSet or another Persistent Volume Claim it will be serviced by Ceph unless it specifically requests
+another storage class.
+
+### Step eight - prexit-local
+
+OK, so now we should be ready to go! Head over to https://gitlab.com/codmill/customer-projects/guardian/prexit-local and start following the instructions
+there to get some components set up. Happy hacking!

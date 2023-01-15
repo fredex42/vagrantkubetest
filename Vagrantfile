@@ -79,7 +79,8 @@ Vagrant.configure("2") do |config|
     #
     #   # Customize the amount of memory on the VM
       vb.memory = "8192"
-      vb.cpus = 2
+      vb.cpus = 4
+      vb.customize ["modifyvm", :id, "--cpuexecutioncap", "75"]
     end
 
     cp.vm.disk :disk, size: "30GB", name: "ceph_storage_0"
@@ -94,8 +95,8 @@ Vagrant.configure("2") do |config|
     #
     #   # Customize the amount of memory on the VM
       vb.memory = "8192"
-      vb.cpus = 2
-
+      vb.cpus = 4
+      vb.customize ["modifyvm", :id, "--cpuexecutioncap", "75"]
     end
 
     cp.vm.disk :disk, size: "30GB", name: "ceph_storage_1"
