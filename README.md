@@ -115,3 +115,141 @@ instance1              Ready    <none>          37h   v1.25.5   10.0.0.12     <n
 ```
 
 ### Step five - ingress controller
+
+One of our objectives was to test out the Kong ingress controller.  In order to get this active, you'll need to initialise it from the standard setup
+and then customise it to make it work better with bare-metal.
+
+See https://docs.konghq.com/kubernetes-ingress-controller/2.8.x/deployment/minikube/ for more details.
+
+```bash
+kubectl create -f https://raw.githubusercontent.com/Kong/kubernetes-ingress-controller/v2.8.0/deploy/single/all-in-one-dbless.yaml
+kubectl delete -n kong deployment ingress-kong
+kubectl delete -n kong service kong-proxy
+```
+
+Wait, I just deleted the deployment?!
+
+Yes you did.  We need to replace it with a Daemonset.
+
+```bash
+kubectl apply -f /home/vagrant/manifests/kongds.yaml
+```
+
+`kongds.yaml` is a copy of the Deployment from the `all-in-one-dbless.yaml` manifest but adapted to make it into a DaemonSet and tell
+it to bind ports 80 and 443 on all nodes.
+
+Once this is up and running (`watch -n 2 kubectl get pods -n kong`), you should be able to curl it _from your host system_:
+```
+curl http://10.0.0.12/ -D-
+HTTP/1.1 404 Not Found
+Date: Sun, 15 Jan 2023 13:57:55 GMT
+Content-Type: application/json; charset=utf-8
+Connection: keep-alive
+Content-Length: 48
+X-Kong-Response-Latency: 25
+Server: kong/3.0.2
+
+{"message":"no Route matched with those values"}⏎  
+
+curl https://10.0.0.12/ -D- -k
+HTTP/2 404 
+date: Sun, 15 Jan 2023 13:58:19 GMT
+content-type: application/json; charset=utf-8
+content-length: 48
+x-kong-response-latency: 2
+server: kong/3.0.2
+
+{"message":"no Route matched with those values"}⏎
+```
+
+(we still need to use -k for https because there is no proper HTTPS cert set up yet)
+
+### Step six - but does it _work_ ?
+
+OK, so now we need to test it out.  You can use the `apachetest.yaml` manifest for this, it deploys a simple Apache httpd server
+with a Service in front of it and an ingress to route to it.
+
+```bash
+kubectl apply -f /home/vagrant/manifests/apachetest.yaml
+watch -n 2 kubectl get pods
+```
+(wait until it loads up, obvs.)
+
+Firstly, exec onto the pod (the suffixes will be different on your system, use `kubectl get pods` to find the correct name):
+
+```bash
+kubectl exec -it httpd-deployment-nautilus-dfbf5fb65-28ckv -- /bin/bash
+root@httpd-deployment-nautilus-dfbf5fb65-28ckv:/usr/local/apache2# curl http://localhost -D-
+bash: curl: command not found
+root@httpd-deployment-nautilus-dfbf5fb65-28ckv:/usr/local/apache2# apt-get update && apt-get install curl
+.
+.
+.
+.
+root@httpd-deployment-nautilus-dfbf5fb65-28ckv:/usr/local/apache2# curl http://localhost -D-
+HTTP/1.1 200 OK
+Date: Sun, 15 Jan 2023 14:02:25 GMT
+Server: Apache/2.4.54 (Unix)
+Last-Modified: Mon, 11 Jun 2007 18:53:14 GMT
+ETag: "2d-432a5e4a73a80"
+Accept-Ranges: bytes
+Content-Length: 45
+Content-Type: text/html
+
+<html><body><h1>It works!</h1></body></html>
+root@httpd-deployment-nautilus-dfbf5fb65-28ckv:/usr/local/apache2# exit
+```
+
+OK so that is the output we expect to see from the server.
+
+Try it from your _host system_:
+
+```bash
+curl https://10.0.0.12 -D- -k
+HTTP/2 404 
+date: Sun, 15 Jan 2023 14:03:30 GMT
+content-type: application/json; charset=utf-8
+content-length: 48
+x-kong-response-latency: 1
+server: kong/3.0.2
+
+{"message":"no Route matched with those values"}
+```
+
+Huh? Check the path under which the ingress is configured:
+
+```yaml
+  - http:
+      paths:
+      - path: /testpath
+        pathType: ImplementationSpecific
+```
+
+Now try again:
+
+```
+curl https://10.0.0.12/testpath -D- -k
+HTTP/2 200 
+content-type: text/html; charset=UTF-8
+content-length: 45
+date: Sun, 15 Jan 2023 14:03:26 GMT
+server: Apache/2.4.54 (Unix)
+last-modified: Mon, 11 Jun 2007 18:53:14 GMT
+etag: "2d-432a5e4a73a80"
+accept-ranges: bytes
+x-kong-upstream-latency: 68
+x-kong-proxy-latency: 4
+via: kong/3.0.2
+
+<html><body><h1>It works!</h1></body></html>
+```
+
+Great! We got access to our Apache pod(s) from the outside world, with SSL termination, and the headers are telling us that Kong is working just fine to forward
+the messages.
+
+If you use `https://10.0.0.11` instead of `https://10.0.0.12` you should see exactly the same result.
+
+### Step seven - prexit-local?
+
+Unfortunately, in order to make prexit-local work on this system you will need some kind of storage. We can't use the `hostpath` provisioner like minikube does
+because we have multiple worker nodes to worry about.  The plan is to use Ceph for this, and it will be the subject of an upcoming PR.....
