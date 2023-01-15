@@ -78,9 +78,12 @@ Vagrant.configure("2") do |config|
     #   vb.gui = true
     #
     #   # Customize the amount of memory on the VM
-      vb.memory = "2048"
-      vb.cpus = 2
+      vb.memory = "8192"
+      vb.cpus = 4
+      vb.customize ["modifyvm", :id, "--cpuexecutioncap", "75"]
     end
+
+    cp.vm.disk :disk, size: "30GB", name: "ceph_storage_0"
   end
 
   config.vm.define "instance1" do |cp|
@@ -91,10 +94,12 @@ Vagrant.configure("2") do |config|
     #   vb.gui = true
     #
     #   # Customize the amount of memory on the VM
-      vb.memory = "2048"
-      vb.cpus = 2
-
+      vb.memory = "8192"
+      vb.cpus = 4
+      vb.customize ["modifyvm", :id, "--cpuexecutioncap", "75"]
     end
+
+    cp.vm.disk :disk, size: "30GB", name: "ceph_storage_1"
   end
 
   config.vm.provision :file, source: "kubernetes.repo", destination: "/tmp/kubernetes.repo"
