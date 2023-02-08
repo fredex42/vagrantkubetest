@@ -297,6 +297,30 @@ Finally, we need to mark this as the "default" storage class, so that the prexit
 kubectl patch storageclass rook-ceph-block -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
 
+#### Shared storages
+
+We have just provisioned ceph block storage, which is great for databases and other things that require private storages. However, if you want
+to provision a _shared_ storage (ReadWriteMulti for example) this will fail with the error 
+
+```
+multi node access modes are only supported on rbd `block` type volumes
+```
+
+This error message is in fact wrong, it should read that multi-node access modes are **not** supported on rbd "block" type volumes.  We must
+provision a shared filesystem type for this to work.
+
+Fortunately, that's pretty easy:
+
+```bash
+kubectl apply -f manifests/ceph-filesystem.yaml
+```
+
+This will provision a new Cephfs filesystem and will then provision a Storage Class that refers to it.
+
+If you see the "multi node access modes..." error, then find the relevant persistent volume claim template and insert the line
+`storageClass: rook-cephfs` into the `spec` block in order to use the correct storage class.
+
+
 And that's it! When you bring up a StatefulSet or another Persistent Volume Claim it will be serviced by Ceph unless it specifically requests
 another storage class.
 
